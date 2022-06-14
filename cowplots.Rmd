@@ -1,0 +1,329 @@
+---
+title: "Cowplots for Antigen ML"
+output: html_notebook
+---
+
+
+
+```{r}
+#Angola PCA (presence/absence)
+
+#PCAs for concentration and logconcentration for presence/absence
+
+library(tidyverse)
+
+setwd("/Users/seschmedes/Dropbox/APHLFellowship/AntigenML/")
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- select(tbl, concentration_HRP2, concentration_pLDH, concentration_pAldo, logconcentration_HRP2, logconcentration_pLDH, logconcentration_pAldo, qPCR)
+tbl2 <- filter(tbl2, concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA")
+tbl2 <- filter(tbl2, qPCR != "NA")
+
+#Generate presence/absence based on qPCR
+tbl2$qPCR_PA <- if_else(tbl2$qPCR > 0, "Positive", "Negative")
+tbl2$qPCR_PA <- factor(tbl2$qPCR_PA)
+
+#concentration PCA
+tbl3 <- tbl2[,1:3]
+tbl3.matrix <- as.matrix(tbl3)
+pca.tbl3 <- prcomp(tbl3.matrix, center = T, scale. = T)
+var.tbl3 <- pca.tbl3$sdev^2
+var.tbl3.percent <- var.tbl3/sum(var.tbl3)
+pc1.var <- round(var.tbl3.percent[1]*100, digits = 2)
+pc2.var <- round(var.tbl3.percent[2]*100, digits = 2)
+df <- data.frame(tbl2$qPCR_PA, pca.tbl3$x[,1], pca.tbl3$x[,2])
+colnames(df) <- c("qPCR_PA", "PC1", "PC2")
+plot.angola.conc <- ggplot(df, aes(x=PC1, y=PC2, color=qPCR_PA), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var, "% variance explained)")) + ylab(paste("PC2 (", pc2.var, "% variance explanined)"))
+
+
+#log concentration PCA
+tbl4 <- tbl2[,4:6]
+tbl4.matrix <- as.matrix(tbl4)
+pca.tbl4 <- prcomp(tbl4.matrix, center = T, scale. = T)
+var.tbl4 <- pca.tbl4$sdev^2
+var.tbl4.percent <- var.tbl4/sum(var.tbl4)
+pc1.var.tbl4 <- round(var.tbl4.percent[1]*100, digits=2)
+pc2.var.tbl4 <- round(var.tbl4.percent[2]*100, digits=2)
+df2 <- data.frame(tbl2$qPCR_PA, pca.tbl4$x[,1], pca.tbl4$x[,2])
+colnames(df2) <- c("qPCR_PA", "PC1", "PC2")
+plot.angola.log <- ggplot(df2, aes(x=PC1, y=PC2, color=qPCR_PA), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl4, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl4, "% variance explanined)"))
+
+```
+```{r}
+#Angola infection level
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+fv <- select(tbl, concentration_HRP2, concentration_pLDH, concentration_pAldo, qPCR)
+fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA", qPCR != "NA")
+#can also use the cut function
+fv <- mutate(fv, 
+             infection = if_else(qPCR > 0 & qPCR <= 20, "lowest",
+                         if_else(qPCR > 20 & qPCR <= 200, "low",
+                         if_else(qPCR > 200 & qPCR <= 2000, "mid",
+                         if_else(qPCR > 2000, "high", "none")))))
+fv$infection <- factor(fv$infection)
+fv$qPCR <- NULL
+
+#logconcentration fv
+fv.log <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, logconcentration_pAldo, qPCR)
+fv.log <- filter(fv.log, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", logconcentration_pAldo != "NA", qPCR != "NA")
+fv.log <- mutate(fv.log, 
+             infection = if_else(qPCR > 0 & qPCR <= 20, "lowest",
+                         if_else(qPCR > 20 & qPCR <= 200, "low",
+                         if_else(qPCR > 200 & qPCR <= 2000, "mid",
+                         if_else(qPCR > 2000, "high", "none")))))
+fv.log$infection <- factor(fv.log$infection)
+fv.log$qPCR <- NULL
+
+#concentration PCA (no NAs included)
+tbl.pca <- fv[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+pc1.var.tbl <- round(var.tbl.percent[1]*100, digits=2)
+pc2.var.tbl <- round(var.tbl.percent[2]*100, digits=2)
+df <- data.frame(fv$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+angola.infect.conc <- ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl, "% variance explanined)")) + scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                            labels=c("none", "lowest", "low", "mid", "high")) 
+
+#logconcentration PCA
+tbl.pca <- fv.log[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+pc1.var.tbl <- round(var.tbl.percent[1]*100, digits=2)
+pc2.var.tbl <- round(var.tbl.percent[2]*100, digits=2)
+df <- data.frame(fv$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+angola.infect.log <- ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl, "% variance explanined)"))  + scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                            labels=c("none", "lowest", "low", "mid", "high")) 
+```
+
+
+```{r}
+#Haiti PCA (presence/absence)
+
+#PCAs for concentration and logconcentration for presence/absence
+
+#Read in antigen data
+file <- "HaitiDataset.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- tbl[-1,]
+tbl2 <- select(tbl2, `Predicted Parasitemia\n(p/uL)`, `Aldolase \n(pg/mL)`, `pLDH\n(pg/mL)`, `HRP2\n(pg/mL)`)
+colnames(tbl2) <- c("Parasitemia", "Aldo", "pLDH", "HRP2")
+
+tbl2 <- filter(tbl2, HRP2 != "NA", pLDH != "NA", Aldo != "NA", Parasitemia != "NA")
+tbl2$Parasitemia <- as.numeric(tbl2$Parasitemia)
+
+#Generate presence/absence based on qPCR
+tbl2$Parasitemia_PA <- if_else(tbl2$Parasitemia > 0.0, "Positive", "Negative")
+tbl2$Parasitemia_PA <- factor(tbl2$Parasitemia_PA)
+
+#Calculate logconcentration
+tbl2$logconcentration_HRP2 <- log10(tbl2$HRP2)
+tbl2$logconcentration_pLDH <- log10(tbl2$pLDH)
+tbl2$logconcentration_Aldo <- log10(tbl2$Aldo)
+
+#concentration PCA
+tbl3 <- tbl2[,2:4]
+tbl3.matrix <- as.matrix(tbl3)
+pca.tbl3 <- prcomp(tbl3.matrix, center = T, scale. = T)
+var.tbl3 <- pca.tbl3$sdev^2
+var.tbl3.percent <- var.tbl3/sum(var.tbl3)
+pc1.var <- round(var.tbl3.percent[1]*100, digits = 2)
+pc2.var <- round(var.tbl3.percent[2]*100, digits = 2)
+df <- data.frame(tbl2$Parasitemia_PA, pca.tbl3$x[,1], pca.tbl3$x[,2])
+colnames(df) <- c("PA", "PC1", "PC2")
+plot.haiti.conc <- ggplot(df, aes(x=PC1, y=PC2, color=PA), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var, "% variance explained)")) + ylab(paste("PC2 (", pc2.var, "% variance explanined)")) 
+
+
+#log concentration PCA
+tbl4 <- tbl2[,6:8]
+tbl4.matrix <- as.matrix(tbl4)
+pca.tbl4 <- prcomp(tbl4.matrix, center = T, scale. = T)
+var.tbl4 <- pca.tbl4$sdev^2
+var.tbl4.percent <- var.tbl4/sum(var.tbl4)
+pc1.var.tbl4 <- round(var.tbl4.percent[1]*100, digits=2)
+pc2.var.tbl4 <- round(var.tbl4.percent[2]*100, digits=2)
+df2 <- data.frame(tbl2$Parasitemia_PA, pca.tbl4$x[,1], pca.tbl4$x[,2])
+colnames(df2) <- c("PA", "PC1", "PC2")
+plot.haiti.log <- ggplot(df2, aes(x=PC1, y=PC2, color=PA), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl4, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl4, "% variance explanined)")) 
+
+```
+
+```{r}
+#Haiti infection level
+
+#Read in antigen data
+file <- "HaitiDataset.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- tbl[-1,]
+tbl2 <- select(tbl2, `Predicted Parasitemia\n(p/uL)`, `Aldolase \n(pg/mL)`, `pLDH\n(pg/mL)`, `HRP2\n(pg/mL)`)
+colnames(tbl2) <- c("Parasitemia", "Aldo", "pLDH", "HRP2")
+
+tbl2 <- filter(tbl2, HRP2 != "NA", pLDH != "NA", Aldo != "NA", Parasitemia != "NA")
+tbl2$Parasitemia <- as.numeric(tbl2$Parasitemia)
+
+#can also use the cut function
+fv <- mutate(tbl2, 
+             infection = if_else(Parasitemia > 0 & Parasitemia <= 20, "lowest",
+                         if_else(Parasitemia > 20 & Parasitemia <= 200, "low",
+                         if_else(Parasitemia > 200 & Parasitemia <= 2000, "mid",
+                         if_else(Parasitemia > 2000, "high", "none")))))
+fv$infection <- factor(fv$infection)
+fv$Parasitemia <- NULL
+
+#logconcentration fv
+fv.log <- fv
+fv.log$logconcentration_HRP2 <- log10(fv$HRP2)
+fv.log$logconcentration_pLDH <- log10(fv$pLDH)
+fv.log$logconcentration_Aldo <- log10(fv$Aldo)
+fv.log <- select(fv.log, logconcentration_HRP2, logconcentration_pLDH, logconcentration_Aldo, infection)
+
+
+#concentration PCA (no NAs included)
+tbl.pca <- fv[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+pc1.var.tbl <- round(var.tbl.percent[1]*100, digits=2)
+pc2.var.tbl <- round(var.tbl.percent[2]*100, digits=2)
+df <- data.frame(fv$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+haiti.infect.conc <-ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl, "% variance explanined)")) + scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                            labels=c("none", "lowest", "low", "mid", "high"))
+
+#logconcentration PCA
+tbl.pca <- fv.log[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+pc1.var.tbl <- round(var.tbl.percent[1]*100, digits=2)
+pc2.var.tbl <- round(var.tbl.percent[2]*100, digits=2)
+df <- data.frame(fv.log$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+haiti.infect.log <- ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl, "% variance explanined)")) + scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                            labels=c("none", "lowest", "low", "mid", "high"))
+```
+```{r}
+#Angola microscopy infection level
+#Read in antigen data
+file <- "AngolaDataset.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- select(tbl, concentration_Aldo, concentration_LDH, concentration_HRP2, parasitemia0)
+colnames(tbl2) <- c("Aldo", "pLDH", "HRP2", "Parasitemia")
+
+tbl2 <- filter(tbl2, HRP2 != "NA", pLDH != "NA", Aldo != "NA", Parasitemia != "NA")
+
+
+#can also use the cut function
+fv <- mutate(tbl2, 
+             infection = if_else(Parasitemia > 0 & Parasitemia <= 5000, "lowest",
+                         if_else(Parasitemia > 5000 & Parasitemia <= 10000, "low",
+                         if_else(Parasitemia > 10000 & Parasitemia <= 15000, "mid",
+                         if_else(Parasitemia > 15000, "high", "none")))))
+fv$infection <- factor(fv$infection)
+fv$Parasitemia <- NULL
+
+#logconcentration fv
+fv.log <- fv
+fv.log$logconcentration_HRP2 <- log10(fv$HRP2)
+fv.log$logconcentration_pLDH <- log10(fv$pLDH)
+fv.log$logconcentration_Aldo <- log10(fv$Aldo)
+fv.log <- select(fv.log, logconcentration_HRP2, logconcentration_pLDH, logconcentration_Aldo, infection)
+
+
+#concentration PCA (no NAs included)
+tbl.pca <- fv[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+pc1.var.tbl <- round(var.tbl.percent[1]*100, digits=2)
+pc2.var.tbl <- round(var.tbl.percent[2]*100, digits=2)
+df <- data.frame(fv$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+angola.micro.conc <- ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl, "% variance explanined)"))
+  #scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                           # labels=c("none", "lowest", "low", "mid", "high"))
+
+#logconcentration PCA
+tbl.pca <- fv.log[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+pc1.var.tbl <- round(var.tbl.percent[1]*100, digits=2)
+pc2.var.tbl <- round(var.tbl.percent[2]*100, digits=2)
+df <- data.frame(fv.log$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+angola.micro.log <- ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab(paste("PC1 (", pc1.var.tbl, "% variance explained)")) + ylab(paste("PC2 (", pc2.var.tbl, "% variance explanined)"))
+  #scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                           # labels=c("none", "lowest", "low", "mid", "high"))
+
+```
+
+```{r}
+#Cowplot
+
+library(cowplot)
+
+#Angola and Haiti presence/absence, infection concentatration
+
+legend.pa.conc <- get_legend(plot.haiti.conc + scale_color_discrete(name = "PCR Status"))
+legend.infect.conc <- get_legend(haiti.infect.conc + scale_color_discrete(breaks = c("none", "lowest", "low", "mid", "high"), labels = c("None", "Lowest", "Low", "Mid", "High")))
+legend.angola.micro <- get_legend(angola.micro.log + scale_color_discrete(breaks = c("lowest", "low", "mid", "high"), labels = c("Lowest", "Low", "Mid", "High")))
+
+top.conc <- plot_grid(plot.angola.conc + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), plot.haiti.conc + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), legend.pa.conc, labels = c('A', 'B'), nrow = 1, rel_widths = c(1,1,0.4))
+
+bottom.conc <- plot_grid(angola.infect.conc + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), haiti.infect.conc + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), legend.infect.conc, labels = c('C', 'D'), nrow = 1, rel_widths = c(1,1,0.4))
+  
+conc.plot <- plot_grid(top.conc, bottom.conc, nrow = 2)
+
+ggsave("FigureS2.tiff", plot = conc.plot, dpi = 300, width = 22, height = 15, units = c("cm"), limitsize = T)
+
+#Angola and Haiti presence/absence, infection log concentration
+
+legend.pa.log <- get_legend(plot.haiti.log + scale_color_discrete(name = "PCR Status"))
+legend.infect.log <- get_legend(haiti.infect.log + scale_color_discrete(breaks = c("none", "lowest", "low", "mid", "high"), labels = c("None", "Lowest", "Low", "Mid", "High")))
+
+top.log <- plot_grid(plot.angola.log + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)),
+          plot.haiti.log + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), legend.pa.log, 
+          labels = c('A', 'B'), nrow = 1, rel_widths = c(1,1,0.4))
+
+bottom.log <- plot_grid(angola.infect.log + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), 
+          haiti.infect.log + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), legend.infect.log, labels = c('C', 'D'), nrow = 1, rel_widths = c(1,1,0.4))
+  
+log.plot <- plot_grid(top.log, bottom.log, nrow = 2)
+
+ggsave("Figure1.tiff", plot = log.plot, dpi = 300, width = 22, height = 15, units = c("cm"), limitsize = T)
+
+#Angola (micro) PCAs (infection level, conc and log)
+
+micro.plot <- plot_grid(angola.micro.conc + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), angola.micro.log + theme(legend.position = "none", axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8)), legend.angola.micro, labels = c('A', 'B'), nrow = 1, rel_widths = c(1,1,0.4))
+
+ggsave("FigureS3.tiff", plot = micro.plot, dpi = 300, width = 22, height = 10, units = c("cm"), limitsize = T)
+
+
+```
+
+
+```{r}
+#Cowplot
+```
+
+

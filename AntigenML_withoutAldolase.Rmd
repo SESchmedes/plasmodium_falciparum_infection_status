@@ -1,0 +1,414 @@
+---
+title: "AntigenML_withoutAldolase"
+output: html_notebook
+---
+
+
+```{r}
+#PCA PA, conc and log
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- select(tbl, concentration_HRP2, concentration_pLDH, logconcentration_HRP2, logconcentration_pLDH,
+               RDT, qPCR, fever, country, age)
+tbl2 <- filter(tbl2, concentration_HRP2 != "NA", concentration_pLDH != "NA")
+tbl2$RDT <- factor(tbl2$RDT)
+tbl2$country <- factor(tbl2$country)
+tbl2$fever <- factor(tbl2$fever)
+tbl2 <- filter(tbl2, qPCR != "NA")
+
+#Generate presence/absence based on qPCR
+tbl2$qPCR_PA <- if_else(tbl2$qPCR > 0, "1", "0")
+tbl2$qPCR_PA <- factor(tbl2$qPCR_PA)
+
+#concentration PCA
+tbl3 <- tbl2[,1:2]
+tbl3.matrix <- as.matrix(tbl3)
+pca.tbl3 <- prcomp(tbl3.matrix, center = T, scale. = T)
+var.tbl3 <- pca.tbl3$sdev^2
+var.tbl3.percent <- var.tbl3/sum(var.tbl3)
+df <- data.frame(tbl2$qPCR_PA, tbl2$RDT, pca.tbl3$x[,1], pca.tbl3$x[,2])
+colnames(df) <- c("qPCR_PA", "RDT", "PC1", "PC2")
+ggplot(df, aes(x=PC1, y=PC2, color=qPCR_PA), alpha(1/10)) + geom_point() + xlab("PC1 (65.1% variance explained)") +
+  ylab("PC2 (34.9% variance explanined)")
+
+
+#log concentration PCA
+tbl4 <- tbl2[,3:4]
+tbl4.matrix <- as.matrix(tbl4)
+pca.tbl4 <- prcomp(tbl4.matrix, center = T, scale. = T)
+var.tbl4 <- pca.tbl4$sdev^2
+var.tbl4.percent <- var.tbl4/sum(var.tbl4)
+df2 <- data.frame(tbl2$age, tbl2$fever, tbl2$country, tbl2$qPCR_PA, tbl2$RDT, pca.tbl4$x[,1], pca.tbl4$x[,2])
+colnames(df2) <- c("age", "fever", "country", "qPCR_PA", "RDT", "PC1", "PC2")
+ggplot(df2, aes(x=PC1, y=PC2, color=qPCR_PA), alpha(1/10)) + geom_point() + xlab("PC1 (73.6% variance explained)") +
+  ylab("PC2 (26.4% variance explanined)")
+```
+
+```{r}
+##PCA cat level infection, conc and log
+
+#using concentration
+library(party)
+library(readr)
+library(dplyr)
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+fv <- select(tbl, concentration_HRP2, concentration_pLDH, qPCR)
+fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", qPCR != "NA")
+#can also use the cut function
+fv <- mutate(fv, 
+             infection = if_else(qPCR > 0 & qPCR <= 20, "lowest",
+                         if_else(qPCR > 20 & qPCR <= 200, "low",
+                         if_else(qPCR > 200 & qPCR <= 2000, "mid",
+                         if_else(qPCR > 2000, "high", "none")))))
+fv$infection <- factor(fv$infection)
+fv$qPCR <- NULL
+
+#logconcentration fv
+fv.log <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, qPCR)
+fv.log <- filter(fv.log, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", qPCR != "NA")
+fv.log <- mutate(fv.log, 
+             infection = if_else(qPCR > 0 & qPCR <= 20, "lowest",
+                         if_else(qPCR > 20 & qPCR <= 200, "low",
+                         if_else(qPCR > 200 & qPCR <= 2000, "mid",
+                         if_else(qPCR > 2000, "high", "none")))))
+fv.log$infection <- factor(fv.log$infection)
+fv.log$qPCR <- NULL
+
+#concentration PCA (no NAs included)
+tbl.pca <- fv[,1:2]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+df <- data.frame(fv$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab("PC1 (65.1% variance explained)") +
+  ylab("PC2 (34.9% variance explanined)") + scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                            labels=c("none", "lowest", "low", "mid", "high"))
+
+#logconcentration PCA
+tbl.pca <- fv.log[,1:2]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+df <- data.frame(fv$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab("PC1 (73.6% variance explained)") +
+  ylab("PC2 (26.4% variance explanined)") + scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                            labels=c("none", "lowest", "low", "mid", "high"))
+```
+
+
+```{r}
+#ctree PA all and LOOCV, conc and log
+
+library(party)
+library(readr)
+library(dplyr)
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+fv <- select(tbl, concentration_HRP2, concentration_pLDH, qPCR)
+fv$qPCR_PA <- if_else(fv$qPCR > 0, "positive", "negative")
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", qPCR != "NA")
+fv$qPCR <- NULL
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+
+#run ctree on all data (uses training set as test set) using concentration as attributes
+train <- fv
+train.ct <- ctree(qPCR_PA ~., data = train)
+train.ct
+plot(train.ct)
+confus_matrix <- table(predict(train.ct), train$qPCR_PA)
+tn <- confus_matrix[1,1]
+fp <- confus_matrix[1,2]
+fn <- confus_matrix[2,1]
+tp <- confus_matrix[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+#recall/true positive rate/sensitivity
+sensitivity <- tp/(tp + fn)
+#true negative rate/specificity
+specificity <- tn/(fp + tn)
+accuracy_table_all <- data.frame(accuracy, sensitivity, specificity, "concentration")
+colnames(accuracy_table_all) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+
+#LOOCV
+outcome_tbl <- data.frame()
+for (i in 1:nrow(fv)) {
+    #divide into test and train sets
+     train <- fv[-i,]
+     test <- fv[i,]
+
+    #run ctree using only training set
+    train.ct <- ctree(qPCR_PA ~., data = train)
+
+    #predict using test data set
+    cmatrix_test <- table(predict(train.ct, newdata = test), test$qPCR_PA)
+    tn <- cmatrix_test[1,1]
+    fp <- cmatrix_test[1,2]
+    fn <- cmatrix_test[2,1]
+    tp <- cmatrix_test[2,2]
+
+    newRow <- c(tp, tn, fp, fn)
+
+    outcome_tbl <- rbind(outcome_tbl, newRow)
+
+}
+colnames(outcome_tbl) <- c("tp", "tn", "fp", "fn")
+  
+accuracy <- (sum(outcome_tbl$tp) + sum(outcome_tbl$tn))/(sum(outcome_tbl$tp) + sum(outcome_tbl$fp) + sum(outcome_tbl$tn) + sum(outcome_tbl$fn))
+#true positive rate/sensitivity
+sensitivity <- sum(outcome_tbl$tp)/(sum(outcome_tbl$tp) + sum(outcome_tbl$fn))
+#true negative rate/specificity
+specificity <- sum(outcome_tbl$tn)/(sum(outcome_tbl$fp) + sum(outcome_tbl$tn))
+accuracy_table_LOOCV_conc <- data.frame(accuracy, sensitivity, specificity, "concentration")
+colnames(accuracy_table_LOOCV_conc) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+
+##############################
+
+#using qPCR presence/absence and log concentration
+fv <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, qPCR)
+fv$qPCR_PA <- if_else(fv$qPCR > 0, "positive", "negative")
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+fv <- filter(fv, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", qPCR != "NA")
+fv$qPCR <- NULL
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+
+#run ctree on all data (uses training set as test set) using concentration as attributes
+train <- fv
+train.ct <- ctree(qPCR_PA ~., data = train)
+train.ct
+plot(train.ct)
+confus_matrix <- table(predict(train.ct), train$qPCR_PA)
+tn <- confus_matrix[1,1]
+fp <- confus_matrix[1,2]
+fn <- confus_matrix[2,1]
+tp <- confus_matrix[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+#recall/true positive rate/sensitivity
+sensitivity <- tp/(tp + fn)
+#true negative rate/specificity
+specificity <- tn/(fp + tn)
+accuracy_table_all_log <- data.frame(accuracy, sensitivity, specificity, "logconcentration")
+colnames(accuracy_table_all_log) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+
+#LOOCV
+outcome_tbl <- data.frame()
+for (i in 1:nrow(fv)) {
+    #divide into test and train sets
+     train <- fv[-i,]
+     test <- fv[i,]
+
+    #run ctree using only training set
+    train.ct <- ctree(qPCR_PA ~., data = train)
+
+    #predict using test data set
+    cmatrix_test <- table(predict(train.ct, newdata = test), test$qPCR_PA)
+    tn <- cmatrix_test[1,1]
+    fp <- cmatrix_test[1,2]
+    fn <- cmatrix_test[2,1]
+    tp <- cmatrix_test[2,2]
+
+    newRow <- c(tp, tn, fp, fn)
+
+    outcome_tbl <- rbind(outcome_tbl, newRow)
+
+}
+colnames(outcome_tbl) <- c("tp", "tn", "fp", "fn")
+  
+accuracy <- (sum(outcome_tbl$tp) + sum(outcome_tbl$tn))/(sum(outcome_tbl$tp) + sum(outcome_tbl$fp) + sum(outcome_tbl$tn) + sum(outcome_tbl$fn))
+#true positive rate/sensitivity
+sensitivity <- sum(outcome_tbl$tp)/(sum(outcome_tbl$tp) + sum(outcome_tbl$fn))
+#true negative rate/specificity
+specificity <- sum(outcome_tbl$tn)/(sum(outcome_tbl$fp) + sum(outcome_tbl$tn))
+accuracy_table_LOOCV_logconc <- data.frame(accuracy, sensitivity, specificity, "logconcentration")
+colnames(accuracy_table_LOOCV_logconc) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+##############################
+#Combine results tables for concentration and logconcentration
+both_results_all <- rbind(accuracy_table_all, accuracy_table_all_log)
+
+both_results_LOOCV <- rbind(accuracy_table_LOOCV_conc, accuracy_table_LOOCV_logconc)
+```
+
+```{r}
+#ctree cat level infection, all and LOOCV, conc and log
+
+#classification using the party package using concentration to predict level of infection
+#using concentration
+library(party)
+library(readr)
+library(dplyr)
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+fv <- select(tbl, concentration_HRP2, concentration_pLDH, qPCR)
+fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", qPCR != "NA")
+fv <- mutate(fv, 
+             infection = if_else(qPCR > 0 & qPCR <= 20, "lowest",
+                         if_else(qPCR > 20 & qPCR <= 200, "low",
+                         if_else(qPCR > 200 & qPCR <= 2000, "mid",
+                         if_else(qPCR > 2000, "high", "none")))))
+fv$infection <- factor(fv$infection)
+fv$qPCR <- NULL
+
+#run ctree on all data (uses training set as test set) using concentration as attributes
+train <- fv
+train.ct <- ctree(infection ~., data = train)
+train.ct
+plot(train.ct)
+confus_matrix <- table(predict(train.ct), train$infection)
+correct <- confus_matrix[1,1] + confus_matrix[2,2] + confus_matrix[3,3] + confus_matrix[4,4] + confus_matrix[5,5]
+incorrect <- nrow(train) - correct
+accuracy <- correct/(correct + incorrect)
+tn <- confus_matrix[5,5]
+fp <- confus_matrix[5,1] + confus_matrix[5,2] + confus_matrix[5,3] + confus_matrix[5,4]
+fn <- confus_matrix[1,5] + confus_matrix[2,5] + confus_matrix[3,5] + confus_matrix[4,5]
+tp <- nrow(train) - (tn + fp + fn)
+#recall/true positive rate/sensitivity
+sensitivity <- tp/(tp + fn)
+#true negative rate/specificity
+specificity <- tn/(fp + tn)
+accuracy_table_all_cat <- data.frame(accuracy, sensitivity, specificity, "concentration")
+colnames(accuracy_table_all_cat) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+####################################
+#LOOCV 
+outcome_tbl <- data.frame()
+for (i in 1:nrow(fv)) {
+    #divide into test and train sets
+    train <- fv[-i,]
+    test <- fv[i,]
+
+    #run ctree using only training set
+    train.ct <- ctree(infection ~., data = train)
+
+    #predict using test data set
+    cmatrix_test <- table(predict(train.ct, newdata = test), test$infection)
+    #to assess accuracy of predicting reach category
+    correct <- cmatrix_test[1,1] + cmatrix_test[2,2] + cmatrix_test[3,3] + cmatrix_test[4,4] + cmatrix_test[5,5]
+    incorrect <- nrow(test) - correct
+    #to assess the sensitivity and specificity of distinguishing a positive vs negative infection; not related to categorical classification
+    tn <- cmatrix_test[5,5]
+    fp <- cmatrix_test[5,1] + cmatrix_test[5,2] + cmatrix_test[5,3] + cmatrix_test[5,4] 
+    fn <- cmatrix_test[1,5] + cmatrix_test[2,5] + cmatrix_test[3,5] + cmatrix_test[4,5]
+    tp <- nrow(test) - (tn + fp + fn)
+
+    newRow <- c(correct, incorrect, tp, tn, fp, fn) 
+
+    outcome_tbl <- rbind(outcome_tbl, newRow)
+
+}
+colnames(outcome_tbl) <- c("correct", "incorrect", "tp", "tn", "fp", "fn")
+  
+accuracy <- sum(outcome_tbl$correct)/(sum(outcome_tbl$correct) + sum(outcome_tbl$incorrect))
+#true positive rate/sensitivity
+sensitivity <- sum(outcome_tbl$tp)/(sum(outcome_tbl$tp) + sum(outcome_tbl$fn))
+#true negative rate/specificity
+specificity <- sum(outcome_tbl$tn)/(sum(outcome_tbl$fp) + sum(outcome_tbl$tn))
+accuracy_table_LOOCV_conc_cat <- data.frame(accuracy, sensitivity, specificity, "concentration")
+colnames(accuracy_table_LOOCV_conc_cat) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+####################################
+#using log concentration
+fv.log <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, qPCR)
+fv.log <- filter(fv.log, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", qPCR != "NA")
+fv.log <- mutate(fv.log, 
+             infection = if_else(qPCR > 0 & qPCR <= 20, "lowest",
+                         if_else(qPCR > 20 & qPCR <= 200, "low",
+                         if_else(qPCR > 200 & qPCR <= 2000, "mid",
+                         if_else(qPCR > 2000, "high", "none")))))
+fv.log$infection <- factor(fv.log$infection)
+fv.log$qPCR <- NULL
+
+#run ctree on all data (uses training set as test set) using concentration as attributes
+train <- fv.log
+train.ct <- ctree(infection ~., data = train)
+train.ct
+plot(train.ct)
+confus_matrix <- table(predict(train.ct), train$infection)
+correct <- confus_matrix[1,1] + confus_matrix[2,2] + confus_matrix[3,3] + confus_matrix[4,4] + confus_matrix[5,5]
+incorrect <- nrow(train) - correct
+accuracy <- correct/(correct + incorrect)
+tp <- nrow(train) - (tn + fp + fn)
+tn <- confus_matrix[5,5]
+fp <- confus_matrix[5,1] + confus_matrix[5,2] + confus_matrix[5,3] + confus_matrix[5,4]
+fn <- confus_matrix[1,5] + confus_matrix[2,5] + confus_matrix[3,5] + confus_matrix[4,5]
+#recall/true positive rate/sensitivity
+sensitivity <- tp/(tp + fn)
+#true negative rate/specificity
+specificity <- tn/(fp + tn)
+accuracy_table_all_log_cat <- data.frame(accuracy, sensitivity, specificity, "logconcentration")
+colnames(accuracy_table_all_log_cat) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+##################################
+#LOOCV 
+outcome_tbl_log <- data.frame()
+for (i in 1:nrow(fv.log)) {
+    #divide into test and train sets
+    train <- fv.log[-i,]
+    test <- fv.log[i,]
+
+    #run ctree using only training set
+    train.ct <- ctree(infection ~., data = train)
+
+    #predict using test data set
+    cmatrix_test <- table(predict(train.ct, newdata = test), test$infection)
+    #to assess accuracy of predicting reach category
+    correct <- cmatrix_test[1,1] + cmatrix_test[2,2] + cmatrix_test[3,3] + cmatrix_test[4,4] + cmatrix_test[5,5]
+    incorrect <- nrow(test) - correct
+    #to assess the sensitivity and specificity of distinguishing a positive vs negative infection; not related to categorical classification
+    tn <- cmatrix_test[5,5]
+    fp <- cmatrix_test[5,1] + cmatrix_test[5,2] + cmatrix_test[5,3] + cmatrix_test[5,4] 
+    fn <- cmatrix_test[1,5] + cmatrix_test[2,5] + cmatrix_test[3,5] + cmatrix_test[4,5]
+    tp <- nrow(test) - (tn + fp + fn)
+
+    newRow <- c(correct, incorrect, tp, tn, fp, fn) 
+
+    outcome_tbl_log <- rbind(outcome_tbl_log, newRow)
+
+}
+colnames(outcome_tbl_log) <- c("correct", "incorrect", "tp", "tn", "fp", "fn")
+  
+accuracy <- sum(outcome_tbl_log$correct)/(sum(outcome_tbl_log$correct) + sum(outcome_tbl_log$incorrect))
+#true positive rate/sensitivity
+sensitivity <- sum(outcome_tbl_log$tp)/(sum(outcome_tbl_log$tp) + sum(outcome_tbl_log$fn))
+#true negative rate/specificity
+specificity <- sum(outcome_tbl_log$tn)/(sum(outcome_tbl_log$fp) + sum(outcome_tbl_log$tn))
+accuracy_table_LOOCV_conc_log_cat <- data.frame(accuracy, sensitivity, specificity, "logconcentration")
+colnames(accuracy_table_LOOCV_conc_log_cat) = c("Accuracy", "Sensitivity", "Specificity", "Attribute")
+
+##################################
+
+both_results_all_cat <- rbind(accuracy_table_all_cat, accuracy_table_all_log_cat)
+
+both_results_LOOCV_log_cat <- rbind(accuracy_table_LOOCV_conc_cat, accuracy_table_LOOCV_conc_log_cat)
+```
+

@@ -1,0 +1,204 @@
+---
+title: "AntigenML_Angola_microscopy"
+output: html_notebook
+---
+
+
+```{r}
+#using categorial data for qPCR parasite density (lowest (0-20); low (>20-200), mid (>200-2000), high (>2000)) 
+
+#using concentration
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "AngolaDataset.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- select(tbl, concentration_Aldo, concentration_LDH, concentration_HRP2, parasitemia0)
+colnames(tbl2) <- c("Aldo", "pLDH", "HRP2", "Parasitemia")
+
+tbl2 <- filter(tbl2, HRP2 != "NA", pLDH != "NA", Aldo != "NA", Parasitemia != "NA")
+
+
+#can also use the cut function
+fv <- mutate(tbl2, 
+             infection = if_else(Parasitemia > 0 & Parasitemia <= 5000, "lowest",
+                         if_else(Parasitemia > 5000 & Parasitemia <= 10000, "low",
+                         if_else(Parasitemia > 10000 & Parasitemia <= 15000, "mid",
+                         if_else(Parasitemia > 15000, "high", "none")))))
+fv$infection <- factor(fv$infection)
+fv$Parasitemia <- NULL
+
+#logconcentration fv
+fv.log <- fv
+fv.log$logconcentration_HRP2 <- log10(fv$HRP2)
+fv.log$logconcentration_pLDH <- log10(fv$pLDH)
+fv.log$logconcentration_Aldo <- log10(fv$Aldo)
+fv.log <- select(fv.log, logconcentration_HRP2, logconcentration_pLDH, logconcentration_Aldo, infection)
+
+
+#concentration PCA (no NAs included)
+tbl.pca <- fv[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+df <- data.frame(fv$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab("PC1 (70.4% variance explained)") +
+  ylab("PC2 (15.6% variance explanined)")
+  #scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                           # labels=c("none", "lowest", "low", "mid", "high"))
+
+#logconcentration PCA
+tbl.pca <- fv.log[,1:3]
+tbl.matrix <- as.matrix(tbl.pca)
+pca.tbl <- prcomp(tbl.matrix, center = T, scale. = T)
+var.tbl <- pca.tbl$sdev^2
+var.tbl.percent <- var.tbl/sum(var.tbl)
+df <- data.frame(fv.log$infection, pca.tbl$x[,1], pca.tbl$x[,2])
+colnames(df) <- c("Infection Level", "PC1", "PC2")
+ggplot(df, aes(x=PC1, y=PC2, color=`Infection Level`), alpha(1/10)) + geom_point() + xlab("PC1 (79.5% variance explained)") +
+  ylab("PC2 (17.3% variance explanined)") 
+  #scale_color_hue(breaks=c("none", "lowest", "low", "mid", "high"), 
+                                                           # labels=c("none", "lowest", "low", "mid", "high"))
+
+```
+
+```{r}
+#classification using the party package using concentration to predict level of infection
+
+#using concentration
+library(readr)
+library(dplyr)
+library(party)
+
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "AngolaDataset.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- select(tbl, concentration_Aldo, concentration_LDH, concentration_HRP2, parasitemia0)
+colnames(tbl2) <- c("Aldo", "pLDH", "HRP2", "Parasitemia")
+
+tbl2 <- filter(tbl2, HRP2 != "NA", pLDH != "NA", Aldo != "NA", Parasitemia != "NA")
+
+
+#can also use the cut function
+fv <- mutate(tbl2, 
+             infection = if_else(Parasitemia > 0 & Parasitemia <= 5000, "lowest",
+                         if_else(Parasitemia > 5000 & Parasitemia <= 10000, "low",
+                         if_else(Parasitemia > 10000 & Parasitemia <= 15000, "mid",
+                         if_else(Parasitemia > 15000, "high", "none")))))
+fv$infection <- factor(fv$infection)
+fv$Parasitemia <- NULL
+
+
+#run ctree on all data (uses training set as test set) using concentration as attributes
+train <- fv
+train.ct <- ctree(infection ~., data = train)
+train.ct
+plot(train.ct)
+confus_matrix <- table(predict(train.ct), train$infection)
+correct <- confus_matrix[1,1] + confus_matrix[2,2] + confus_matrix[3,3] + confus_matrix[4,4]
+incorrect <- nrow(train) - correct
+accuracy <- correct/(correct + incorrect)
+
+
+accuracy_table_all_cat <- data.frame(accuracy, "concentration")
+colnames(accuracy_table_all_cat) = c("Accuracy", "Attribute")
+
+####################################
+#LOOCV 
+outcome_tbl <- data.frame()
+for (i in 1:nrow(fv)) {
+    #divide into test and train sets
+    train <- fv[-i,]
+    test <- fv[i,]
+
+    #run ctree using only training set
+    train.ct <- ctree(infection ~., data = train)
+
+    #predict using test data set
+    cmatrix_test <- table(predict(train.ct, newdata = test), test$infection)
+    #to assess accuracy of predicting reach category
+    correct <- cmatrix_test[1,1] + cmatrix_test[2,2] + cmatrix_test[3,3] + cmatrix_test[4,4]
+    incorrect <- nrow(test) - correct
+   
+
+    newRow <- c(correct, incorrect) 
+
+    outcome_tbl <- rbind(outcome_tbl, newRow)
+
+}
+colnames(outcome_tbl) <- c("correct", "incorrect")
+  
+accuracy <- sum(outcome_tbl$correct)/(sum(outcome_tbl$correct) + sum(outcome_tbl$incorrect))
+
+accuracy_table_LOOCV_conc_cat <- data.frame(accuracy, "concentration")
+colnames(accuracy_table_LOOCV_conc_cat) = c("Accuracy", "Attribute")
+
+####################################
+#logconcentration fv
+fv.log <- fv
+fv.log$logconcentration_HRP2 <- log10(fv$HRP2)
+fv.log$logconcentration_pLDH <- log10(fv$pLDH)
+fv.log$logconcentration_Aldo <- log10(fv$Aldo)
+fv.log <- select(fv.log, logconcentration_HRP2, logconcentration_pLDH, logconcentration_Aldo, infection)
+
+#run ctree on all data (uses training set as test set) using concentration as attributes
+train <- fv.log
+train.ct <- ctree(infection ~., data = train)
+train.ct
+plot(train.ct)
+confus_matrix <- table(predict(train.ct), train$infection)
+correct <- confus_matrix[1,1] + confus_matrix[2,2] + confus_matrix[3,3] + confus_matrix[4,4]
+incorrect <- nrow(train) - correct
+accuracy <- correct/(correct + incorrect)
+
+accuracy_table_all_log_cat <- data.frame(accuracy, "logconcentration")
+colnames(accuracy_table_all_log_cat) = c("Accuracy", "Attribute")
+
+##################################
+#LOOCV 
+outcome_tbl_log <- data.frame()
+for (i in 1:nrow(fv.log)) {
+    #divide into test and train sets
+    train <- fv.log[-i,]
+    test <- fv.log[i,]
+
+    #run ctree using only training set
+    train.ct <- ctree(infection ~., data = train)
+
+    #predict using test data set
+    cmatrix_test <- table(predict(train.ct, newdata = test), test$infection)
+    #to assess accuracy of predicting reach category
+    correct <- cmatrix_test[1,1] + cmatrix_test[2,2] + cmatrix_test[3,3] + cmatrix_test[4,4]
+    incorrect <- nrow(test) - correct
+   
+
+    newRow <- c(correct, incorrect) 
+
+    outcome_tbl_log <- rbind(outcome_tbl_log, newRow)
+
+}
+colnames(outcome_tbl_log) <- c("correct", "incorrect")
+  
+accuracy <- sum(outcome_tbl_log$correct)/(sum(outcome_tbl_log$correct) + sum(outcome_tbl_log$incorrect))
+
+accuracy_table_LOOCV_conc_log_cat <- data.frame(accuracy, "logconcentration")
+colnames(accuracy_table_LOOCV_conc_log_cat) = c("Accuracy", "Attribute")
+
+##################################
+
+both_results_all_cat <- rbind(accuracy_table_all_cat, accuracy_table_all_log_cat)
+
+both_results_LOOCV_log_cat <- rbind(accuracy_table_LOOCV_conc_cat, accuracy_table_LOOCV_conc_log_cat)
+```
+

@@ -1,0 +1,537 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+tbl2 <- select(tbl, concentration_HRP2, concentration_pLDH, concentration_pAldo, logconcentration_HRP2, logconcentration_pLDH, logconcentration_pAldo,
+               RDT, qPCR, fever, country, age)
+tbl2 <- filter(tbl2, concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA")
+tbl2$RDT <- factor(tbl2$RDT)
+tbl2$country <- factor(tbl2$country)
+tbl2$fever <- factor(tbl2$fever)
+#tbl2 <- filter(tbl2, qPCR != "NA")
+
+#Generate presence/absence based on qPCR
+tbl2$qPCR_PA <- if_else(tbl2$qPCR > 0, "1", "0")
+tbl2$qPCR_PA <- factor(tbl2$qPCR_PA)
+
+#concentration PCA
+tbl3 <- tbl2[,1:3]
+tbl3.matrix <- as.matrix(tbl3)
+pca.tbl3 <- prcomp(tbl3.matrix, center = T, scale. = T)
+var.tbl3 <- pca.tbl3$sdev^2
+var.tbl3.percent <- var.tbl3/sum(var.tbl3)
+df <- data.frame(tbl2$qPCR_PA, tbl2$RDT, pca.tbl3$x[,1], pca.tbl3$x[,2])
+colnames(df) <- c("qPCR_PA", "RDT", "PC1", "PC2")
+ggplot(df, aes(x=PC1, y=PC2, color=qPCR_PA), alpha(1/10)) + geom_point() + xlab("PC1 (63.4% variance explained)") +
+  ylab("PC2 (28.0% variance explanined)")
+
+
+#log concentration PCA
+tbl4 <- tbl2[,4:6]
+tbl4.matrix <- as.matrix(tbl4)
+pca.tbl4 <- prcomp(tbl4.matrix, center = T, scale. = T)
+var.tbl4 <- pca.tbl4$sdev^2
+var.tbl4.percent <- var.tbl4/sum(var.tbl4)
+df2 <- data.frame(tbl2$age, tbl2$fever, tbl2$country, tbl2$qPCR_PA, tbl2$RDT, pca.tbl4$x[,1], pca.tbl4$x[,2])
+colnames(df2) <- c("age", "fever", "country", "qPCR_PA", "RDT", "PC1", "PC2")
+ggplot(df2, aes(x=PC1, y=PC2, color=qPCR_PA), alpha(1/10)) + geom_point() + xlab("PC1 (82.9% variance explained)") +
+  ylab("PC2 (12.7% variance explanined)")
+
+ggplot(df2, aes(x=PC1, y=PC2, color=RDT), alpha(1/10)) + geom_point() + xlab("PC1 (82.9% variance explained)") +
+  ylab("PC2 (12.7% variance explanined)")
+
+ggplot(df2, aes(x=PC1, y=PC2, color=age), alpha(1/10)) + geom_point() + xlab("PC1 (82.9% variance explained)") +
+  ylab("PC2 (12.7% variance explanined)")
+
+ggplot(df2, aes(x=PC1, y=PC2, color=country), alpha(1/10)) + geom_point() + xlab("PC1 (82.9% variance explained)") +
+  ylab("PC2 (12.7% variance explanined)")
+
+```
+
+```{r}
+#random forest
+
+#using qPCR presence/absence and concentration
+
+library(rpart)
+library(rpart.plot)
+
+fv <- select(tbl, concentration_HRP2, concentration_pLDH, concentration_pAldo, qPCR)
+fv$qPCR_PA <- if_else(fv$qPCR > 0, "positive", "negative")
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA", qPCR != "NA")
+fv$qPCR <- NULL
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+fv$n <- rownames(fv)
+train <- sample_frac(fv, size = 0.8)
+train_rows <- as.numeric(sort(train$n))
+test <- fv[-train_rows,]
+train$n <- NULL
+test$n <- NULL
+
+fit <- rpart(qPCR_PA ~ concentration_HRP2 + concentration_pLDH, concentration_pAldo, data = train, method = "class")
+#plot(fit)
+#text(fit)
+###Did not work. Did not build tree past root.
+
+#using qPCR presence/absence and log concentration
+fv <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, logconcentration_pAldo, qPCR)
+fv$qPCR_PA <- if_else(fv$qPCR > 0, "positive", "negative")
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+fv <- filter(fv, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", logconcentration_pAldo != "NA", qPCR != "NA")
+fv$qPCR <- NULL
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+fv$n <- rownames(fv)
+train <- sample_frac(fv, size = 0.8)
+train_rows <- as.numeric(sort(train$n))
+test <- fv[-train_rows,]
+train$n <- NULL
+test$n <- NULL
+
+fit <- rpart(qPCR_PA ~ logconcentration_HRP2 + logconcentration_pLDH, logconcentration_pAldo, data = train, method = "class")
+plot(fit)
+#same error warning about not a tree, just a root
+```
+
+```{r}
+#using the party package
+library(party)
+library(readr)
+library(dplyr)
+
+setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+file <- "merged.csv"
+tbl <- read_csv(file, col_names = T)
+
+fv <- select(tbl, concentration_HRP2, concentration_pLDH, concentration_pAldo, qPCR)
+fv$qPCR_PA <- if_else(fv$qPCR > 0, "positive", "negative")
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA", qPCR != "NA")
+fv$qPCR <- NULL
+fv$qPCR_PA <- factor(fv$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+fv$n <- rownames(fv)
+train <- sample_frac(fv, size = 0.8)
+train_rows <- as.numeric(sort(train$n))
+test <- fv[-train_rows,]
+train$n <- NULL
+test$n <- NULL
+
+#run ctree
+train.ct <- ctree(qPCR_PA ~., data = train)
+train.ct
+plot(train.ct)
+confus_matrix <- table(predict(train.ct), train$qPCR_PA)
+tn <- confus_matrix[1,1]
+fp <- confus_matrix[1,2]
+fn <- confus_matrix[2,1]
+tp <- confus_matrix[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "concentration")
+colnames(accuracy_table) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+#predict using test data set
+cmatrix_test <- table(predict(train.ct, newdata = test), test$qPCR_PA)
+tn <- cmatrix_test[1,1]
+fp <- cmatrix_test[1,2]
+fn <- cmatrix_test[2,1]
+tp <- cmatrix_test[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_test <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "concentration")
+colnames(accuracy_table_test) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+
+##############################
+
+#using qPCR presence/absence and log concentration
+fv.log <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, logconcentration_pAldo, qPCR)
+fv.log$qPCR_PA <- if_else(fv.log$qPCR > 0, "positive", "negative")
+fv.log$qPCR_PA <- factor(fv.log$qPCR_PA)
+fv.log <- filter(fv.log, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", logconcentration_pAldo != "NA", qPCR != "NA")
+fv.log$qPCR <- NULL
+fv.log$qPCR_PA <- factor(fv.log$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+fv.log$n <- rownames(fv.log)
+train.log <- sample_frac(fv.log, size = 0.8)
+train_rows.log <- as.numeric(sort(train.log$n))
+test.log <- fv.log[-train_rows.log,]
+train.log$n <- NULL
+test.log$n <- NULL
+
+#run ctree
+train.ct.log <- ctree(qPCR_PA ~., data = train.log)
+train.ct.log
+plot(train.ct.log)
+table(predict(train.ct.log), train.log$qPCR_PA)
+
+confus_matrix.log <- table(predict(train.ct.log), train.log$qPCR_PA)
+tn <- confus_matrix.log[1,1]
+fp <- confus_matrix.log[1,2]
+fn <- confus_matrix.log[2,1]
+tp <- confus_matrix.log[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table.log <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "logconcentration")
+colnames(accuracy_table.log) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+both_results_train <- rbind(accuracy_table, accuracy_table.log)
+
+#predict using test data set
+cmatrix_test_log <- table(predict(train.ct.log, newdata = test.log), test.log$qPCR_PA)
+tn <- cmatrix_test_log[1,1]
+fp <- cmatrix_test_log[1,2]
+fn <- cmatrix_test_log[2,1]
+tp <- cmatrix_test_log[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_test_log <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "logconcentration")
+colnames(accuracy_table_test_log) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+both_results_test <- rbind(accuracy_table_test, accuracy_table_test_log)
+
+
+###########################
+#including age and fever as attributes
+
+
+```
+```{r}
+#using logistic regression
+library(readr)
+library(dplyr)
+
+#setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+#file <- "merged.csv"
+#tbl <- read_csv(file, col_names = T)
+
+#fv <- select(tbl, concentration_HRP2, concentration_pLDH, concentration_pAldo, qPCR)
+#fv$qPCR_PA <- if_else(fv$qPCR > 0, "positive", "negative")
+#fv$qPCR_PA <- factor(fv$qPCR_PA)
+#fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA", qPCR != "NA")
+#fv$qPCR <- NULL
+#fv$qPCR_PA <- factor(fv$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+#fv$n <- rownames(fv)
+#train <- sample_frac(fv, size = 0.8)
+#train_rows <- as.numeric(sort(train$n))
+#test <- fv[-train_rows,]
+#train$n <- NULL
+#test$n <- NULL
+
+#run lr
+train.logit <- glm(qPCR_PA ~ concentration_HRP2 + concentration_pLDH + concentration_pAldo, data = train, family = "binomial")
+summary(train.logit)
+train$prob <- predict(train.logit, newdata = train[,1:3], type = "response")
+train$pred <- train$prob
+train$pred[train$pred < 0.5] = 0
+train$pred[train$pred >= 0.5] = 1
+confus_matrix <- xtabs(~qPCR_PA + pred, data = train)
+
+tn <- confus_matrix[1,1]
+fp <- confus_matrix[1,2]
+fn <- confus_matrix[2,1]
+tp <- confus_matrix[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "concentration")
+colnames(accuracy_table) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+#using the test data set
+test$prob <- predict(train.logit, newdata = test[,1:3], type = "response")
+test$pred <- test$prob
+test$pred[test$pred < 0.5] = 0
+test$pred[test$pred >= 0.5] = 1
+confus_matrix_test <- xtabs(~qPCR_PA + pred, data = test)
+tn <- cmatrix_test[1,1]
+fp <- cmatrix_test[1,2]
+fn <- cmatrix_test[2,1]
+tp <- cmatrix_test[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_test <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "concentration")
+colnames(accuracy_table_test) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+
+######################
+#using logconcentration
+
+#fv.log <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, logconcentration_pAldo, qPCR)
+#fv.log$qPCR_PA <- if_else(fv.log$qPCR > 0, "positive", "negative")
+#fv.log$qPCR_PA <- factor(fv.log$qPCR_PA)
+#fv.log <- filter(fv.log, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", logconcentration_pAldo != "NA", qPCR != "NA")
+#fv.log$qPCR <- NULL
+#fv.log$qPCR_PA <- factor(fv.log$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+#fv.log$n <- rownames(fv.log)
+#train.log <- sample_frac(fv.log, size = 0.8)
+#train_rows.log <- as.numeric(sort(train.log$n))
+#test.log <- fv.log[-train_rows.log,]
+#train.log$n <- NULL
+#test.log$n <- NULL
+
+#run lr for log concentration
+trainlog.logit <- glm(qPCR_PA ~ logconcentration_HRP2 + logconcentration_pLDH + logconcentration_pAldo, data = train.log, family = "binomial")
+summary(trainlog.logit)
+train.log$prob <- predict(trainlog.logit, newdata = train.log[,1:3], type = "response")
+train.log$pred <- train.log$prob
+train.log$pred[train.log$pred < 0.5] = 0
+train.log$pred[train.log$pred >= 0.5] = 1
+confus_matrix.log <- xtabs(~qPCR_PA + pred, data = train.log)
+tn <- confus_matrix.log[1,1]
+fp <- confus_matrix.log[1,2]
+fn <- confus_matrix.log[2,1]
+tp <- confus_matrix.log[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table.log <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "logconcentration")
+colnames(accuracy_table.log) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+both_results_train_lr <- rbind(accuracy_table, accuracy_table.log)
+
+#using test data
+test.log$prob <- predict(trainlog.logit, newdata = test.log[,1:3], type = "response")
+test.log$pred <- test.log$prob
+test.log$pred[test.log$pred < 0.5] = 0
+test.log$pred[test.log$pred >= 0.5] = 1
+cmatrix_test_log <- xtabs(~qPCR_PA + pred, data = test.log)
+tn <- cmatrix_test_log[1,1]
+fp <- cmatrix_test_log[1,2]
+fn <- cmatrix_test_log[2,1]
+tp <- cmatrix_test_log[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_test_log <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "logconcentration")
+colnames(accuracy_table_test_log) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+both_results_test_lr <- rbind(accuracy_table_test, accuracy_table_test_log)
+
+```
+
+```{r}
+#using SVMs
+library(readr)
+library(dplyr)
+library(e1071)
+
+#setwd("/Users/sarahschmedes/Documents/AntigenML")
+
+#Read in antigen data
+#file <- "merged.csv"
+#tbl <- read_csv(file, col_names = T)
+
+#fv <- select(tbl, concentration_HRP2, concentration_pLDH, concentration_pAldo, qPCR)
+#fv$qPCR_PA <- if_else(fv$qPCR > 0, "positive", "negative")
+#fv$qPCR_PA <- factor(fv$qPCR_PA)
+#fv <- filter(fv, concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA", qPCR != "NA")
+#fv$qPCR <- NULL
+#fv$qPCR_PA <- factor(fv$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+#fv$n <- rownames(fv)
+#train <- sample_frac(fv, size = 0.8)
+#train_rows <- as.numeric(sort(train$n))
+#test <- fv[-train_rows,]
+#train$n <- NULL
+#test$n <- NULL
+
+#run svm
+class_train <- svm(qPCR_PA ~., train)
+confus_matrix_svm <- table(predict(class_train), train$qPCR_PA)
+tn <- confus_matrix_svm[1,1]
+fp <- confus_matrix_svm[1,2]
+fn <- confus_matrix_svm[2,1]
+tp <- confus_matrix_svm[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_svm <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "concentration")
+colnames(accuracy_table_svm) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+#using test data
+class_test <- table(predict(class_train, newdata = test), test$qPCR_PA)
+tn <- class_test[1,1]
+fp <- class_test[1,2]
+fn <- class_test[2,1]
+tp <- class_test[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_svm_test <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "concentration")
+colnames(accuracy_table_svm_test) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+#############################
+
+#using qPCR presence/absence and log concentration
+#fv.log <- select(tbl, logconcentration_HRP2, logconcentration_pLDH, logconcentration_pAldo, qPCR)
+#fv.log$qPCR_PA <- if_else(fv.log$qPCR > 0, "positive", "negative")
+#fv.log$qPCR_PA <- factor(fv.log$qPCR_PA)
+#fv.log <- filter(fv.log, logconcentration_HRP2 != "NA", logconcentration_pLDH != "NA", logconcentration_pAldo != "NA", qPCR != "NA")
+#fv.log$qPCR <- NULL
+#fv.log$qPCR_PA <- factor(fv.log$qPCR_PA)
+
+#split feature vector into training (80%) and test (20%) sets
+#fv.log$n <- rownames(fv.log)
+#train.log <- sample_frac(fv.log, size = 0.8)
+#train_rows.log <- as.numeric(sort(train.log$n))
+#test.log <- fv.log[-train_rows.log,]
+#test.log$n <- NULL
+
+class_train.log <- svm(qPCR_PA ~., train.log)
+confus_matrix.log <- table(predict(class_train.log), train.log$qPCR_PA)
+tn <- confus_matrix.log[1,1]
+fp <- confus_matrix.log[1,2]
+fn <- confus_matrix.log[2,1]
+tp <- confus_matrix.log[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_svm.log <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "logconcentration")
+colnames(accuracy_table_svm.log) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+both_results_train_svm <- rbind(accuracy_table_svm, accuracy_table_svm.log)
+
+#using test data for log
+class_test.log <- table(predict(class_train.log, newdata = test.log), test.log$qPCR_PA)
+tn <- class_test.log[1,1]
+fp <- class_test.log[1,2]
+fn <- class_test.log[2,1]
+tp <- class_test.log[2,2]
+accuracy <- (tp + tn)/(tp + fp + tn + fn)
+recall_TPR <- tp/(tp + fn)
+precision <- tp/(tp + fp)
+#false positive rate
+fpr <- fp/(fp + tn)
+#true negative rate
+tnr <- 1 - fpr
+#false discovery rate
+fdr <- 1 - precision
+accuracy_table_svm_test.log <- data.frame(accuracy, recall_TPR, precision, fpr, tnr, fdr, "concentration")
+colnames(accuracy_table_svm_test.log) = c("Accuracy", "Recall_TPR", "Precision", "FalsePositiveRate", "TrueNegRate", "FalseDiscRate", "Attribute")
+
+both_results_test_svm <- rbind(accuracy_table_svm_test, accuracy_table_svm_test.log)
+
+##############################
+#All results together
+
+both_results_train$dataSet <- c("train", "train")
+both_results_train$classifier <- c("ctree", "ctree")
+both_results_test$dataSet <- c("test", "test")
+both_results_test$classifier <- c("ctree", "ctree")
+
+both_results_train_lr$dataSet <- c("train", "train")
+both_results_train_lr$classifier <- c("lr", "lr")
+both_results_test_lr$dataSet <- c("test", "test")
+both_results_test_lr$classifier <- c("lr", "lr")
+
+both_results_train_svm$dataSet <- c("train", "train")
+both_results_train_svm$classifier <-  c("svm", "svm")
+both_results_test_svm$dataSet <- c("test", "test")
+both_results_test_svm$classifier <- c("svm", "svm")
+
+all_results <- rbind(both_results_train, both_results_test, both_results_train_lr, both_results_test_lr, both_results_train_svm, both_results_test_svm)
+
+
+
+```
+

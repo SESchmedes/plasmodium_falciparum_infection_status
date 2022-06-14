@@ -1,0 +1,64 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+#Boxplot of parasitemia values for paper
+library(tidyverse)
+#import angola sen pcr dataset
+
+setwd("/Users/seschmedes/Dropbox/APHLFellowship/AntigenML/")
+
+file1 <- "merged.csv"
+tbl_a <- read_csv(file1, col_names = T)
+
+
+tbl_a2 <- filter(tbl_a, qPCR != "NA", concentration_HRP2 != "NA", concentration_pLDH != "NA", concentration_pAldo != "NA")
+tbl_a2 <- select(tbl_a2, qPCR)
+colnames(tbl_a2)[1] <- "parasitemia"
+tbl_a2$country <- "AngolaPCR"
+
+#import angola microscopy dataset
+
+file2 <- "AngolaDataset.csv"
+tbl_b <- read_csv(file2, col_names = T)
+
+tbl_b2 <- filter(tbl_b, concentration_Aldo != "NA", concentration_LDH != "NA", concentration_HRP2 != "NA", parasitemia0 != "NA")
+tbl_b2 <- select(tbl_b2, parasitemia0)
+colnames(tbl_b2)[1] <- "parasitemia"
+tbl_b2$country <- "AngolaMicro"
+
+
+
+#import haiti dataset
+
+file3 <- "HaitiDataset.csv"
+tbl_c1 <- read_csv(file3, col_names = T)
+
+tbl_c1 <- tbl_c1[-1,]
+tbl_c2 <- filter(tbl_c1, `Predicted Parasitemia\n(p/uL)` != "NA", `Aldolase \n(pg/mL)` != "NA", `pLDH\n(pg/mL)` != "NA", `HRP2\n(pg/mL)` != "NA")
+tbl_c2 <- select(tbl_c2, `Predicted Parasitemia\n(p/uL)`)
+colnames(tbl_c2) <- "parasitemia"
+tbl_c2$country <- "Haiti"
+tbl_c2 <- filter(tbl_c2, parasitemia != "NA")
+
+#combine all
+tbl_all <- rbind(tbl_a2, tbl_b2, tbl_c2)
+tbl_all$parasitemia <- as.numeric(tbl_all$parasitemia)
+tbl_all$country <- as.factor(tbl_all$country)
+
+#make plot
+
+ggplot(tbl_all, aes(x=country, y=parasitemia, fill = country)) + geom_boxplot() + scale_y_continuous(trans = "log10") + xlab("Country/Dataset") + ylab("Parasites/uL") + scale_fill_discrete(name="Country/Dataset", breaks = c("AngolaMicro", "AngolaPCR", "Haiti"), labels= c("Angola (Micro)", "Angola (sen-qPCR)", "Haiti (PET)")) + theme(axis.text.x = element_blank())
+
+ggsave("/Users/seschmedes/Dropbox/APHLFellowship/AntigenML/boxplotFig.tiff", last_plot(), dpi = 300, limitsize = TRUE, width = 17, height = 12, units =  ("cm"))
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
